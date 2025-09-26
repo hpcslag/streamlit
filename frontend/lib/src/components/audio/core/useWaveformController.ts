@@ -21,8 +21,8 @@ import type WaveSurfer from "wavesurfer.js"
 import { useEmotionTheme } from "~lib/hooks/useEmotionTheme"
 import { blend, convertRemToPx } from "~lib/theme/utils"
 
-import { WaveSurferPlayer } from "src/components/audio/backends/WaveSurferPlayer"
-import { WaveSurferRecordBackend } from "src/components/audio/backends/WaveSurferRecordBackend"
+import { WaveSurferPlayer } from "../backends/WaveSurferPlayer"
+import { WaveSurferRecordBackend } from "../backends/WaveSurferRecordBackend"
 
 import { encodeToWav } from "./encodeToWav"
 import type {
@@ -122,14 +122,14 @@ export function useWaveformController(
       const recordBackend = new WaveSurferRecordBackend({ sampleRate })
       recordBackend.initialize(ws, RecordPlugin)
       recordBackend.setEventHandlers({
-        onRecordProgress: ms => {
+        onRecordProgress: (ms: number) => {
           setDurationMs(ms)
           emit("duration", { ms })
         },
         onPermissionDenied: () => {
           emit("permissionDenied", {})
         },
-        onError: error => {
+        onError: (error: Error) => {
           transitionTo("error")
           emit("error", {
             code: "recorder_unavailable",
@@ -143,7 +143,7 @@ export function useWaveformController(
       const player = new WaveSurferPlayer()
       player.initialize(ws)
       player.setEventHandlers({
-        onTimeUpdate: ms => {
+        onTimeUpdate: (ms: number) => {
           setCurrentTimeMs(ms)
           emit("timeupdate", { currentTime: ms })
         },
@@ -343,7 +343,7 @@ export function useWaveformController(
     if (wavesurferRef.current) {
       playerRef.current.initialize(wavesurferRef.current)
       playerRef.current.setEventHandlers({
-        onTimeUpdate: ms => {
+        onTimeUpdate: (ms: number) => {
           setCurrentTimeMs(ms)
           emit("timeupdate", { currentTime: ms })
         },
@@ -417,7 +417,9 @@ export function useWaveformController(
       if (!eventListenersRef.current.has(event)) {
         eventListenersRef.current.set(event, new Set())
       }
-      eventListenersRef.current.get(event)?.add(cb)
+      eventListenersRef.current
+        .get(event)
+        ?.add(cb as EventListener<keyof WaveformEventMap>)
     },
     []
   )
@@ -427,7 +429,9 @@ export function useWaveformController(
       event: K,
       cb: EventListener<K>
     ): void => {
-      eventListenersRef.current.get(event)?.delete(cb)
+      eventListenersRef.current
+        .get(event)
+        ?.delete(cb as EventListener<keyof WaveformEventMap>)
     },
     []
   )

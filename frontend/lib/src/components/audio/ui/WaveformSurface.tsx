@@ -18,7 +18,7 @@ import React, { memo, useEffect, useRef, useState } from "react"
 
 import styled from "@emotion/styled"
 
-import type { WaveformController } from "src/components/audio/core/types"
+import type { WaveformController } from "../core/types"
 
 export interface WaveformSurfaceProps {
   controller: WaveformController
