@@ -74,12 +74,12 @@ const AudioInput: React.FC<Props> = ({
   fragmentId,
   disabled,
 }): ReactElement => {
-  const targetSampleRate = element.sampleRate || 16000
+  const containerRef = useRef<HTMLDivElement>(null)
 
-  const controller = useWaveformController({
-    sampleRate: targetSampleRate,
-    autoLoadOnReady: true,
-  })
+  const [hasNoMicPermissions, setHasNoMicPermissions] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isError, setIsError] = useState(false)
+  const [progressTime, setProgressTime] = useState(STARTING_TIME_STRING)
 
   const [deleteFileUrl, setDeleteFileUrl] = useWidgetManagerElementState<
     string | null
@@ -108,18 +108,41 @@ const AudioInput: React.FC<Props> = ({
       defaultValue: STARTING_TIME_STRING,
     })
 
-  const [progressTime, setProgressTime] = useState(STARTING_TIME_STRING)
-  const [shouldUpdatePlaybackTime, setShouldUpdatePlaybackTime] =
-    useState(false)
-  const [hasNoMicPermissions, setHasNoMicPermissions] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isError, setIsError] = useState(false)
-
   const uploadAbortControllerRef = useRef<AbortController | null>(null)
   const currentBlobUrlRef = useRef<string | null>(null)
+  const playbackTimerRef = useRef<number | null>(null)
+  const transcodeAndUploadFileRef = useRef<(wav: Blob) => Promise<void>>()
 
   const widgetId = element.id
   const widgetFormId = element.formId
+
+  const controller = useWaveformController({
+    containerRef,
+    events: {
+      onPermissionDenied: () => {
+        setHasNoMicPermissions(true)
+      },
+      onError: () => {
+        setIsError(true)
+      },
+      onRecordStart: () => {
+        setRecordingTime(STARTING_TIME_STRING)
+      },
+      onRecordReady: () => {
+        setRecordingTime(formatTime(controller.playback.getDurationMs()))
+      },
+      onApprove: (wav: Blob) => {
+        void transcodeAndUploadFileRef.current?.(wav)
+      },
+      onCancel: () => {
+        setRecordingTime(STARTING_TIME_STRING)
+        setProgressTime(STARTING_TIME_STRING)
+      },
+      onProgressMs: (ms: number) => {
+        setRecordingTime(formatTime(ms))
+      },
+    },
+  })
 
   const transcodeAndUploadFile = useCallback(
     async (wavBlob: Blob) => {
@@ -228,6 +251,8 @@ const AudioInput: React.FC<Props> = ({
     ]
   )
 
+  transcodeAndUploadFileRef.current = transcodeAndUploadFile
+
   const handleClear = useCallback(
     async ({
       updateWidgetManager,
@@ -243,13 +268,17 @@ const AudioInput: React.FC<Props> = ({
         currentBlobUrlRef.current = null
       }
 
+      if (playbackTimerRef.current) {
+        cancelAnimationFrame(playbackTimerRef.current)
+        playbackTimerRef.current = null
+      }
+
       setRecordingUrl(null)
       setDeleteFileUrl(null)
       setProgressTime(STARTING_TIME_STRING)
       setRecordingTime(STARTING_TIME_STRING)
-      setShouldUpdatePlaybackTime(false)
 
-      controller.clear()
+      controller.cancel()
 
       if (updateWidgetManager) {
         widgetMgr.setFileUploaderStateValue(
@@ -287,44 +316,29 @@ const AudioInput: React.FC<Props> = ({
   )
 
   useEffect(() => {
-    const handlePermissionDenied = (): void => {
-      setHasNoMicPermissions(true)
+    const updatePlaybackTime = (): void => {
+      if (controller.playback.isPlaying()) {
+        setProgressTime(formatTime(controller.playback.getCurrentTimeMs()))
+        playbackTimerRef.current = requestAnimationFrame(updatePlaybackTime)
+      }
     }
 
-    const handleError = (): void => {
-      setIsError(true)
+    if (controller.playback.isPlaying()) {
+      playbackTimerRef.current = requestAnimationFrame(updatePlaybackTime)
+    } else {
+      if (playbackTimerRef.current) {
+        cancelAnimationFrame(playbackTimerRef.current)
+        playbackTimerRef.current = null
+      }
     }
-
-    const handleReady = ({ wavBlob }: { wavBlob: Blob }): void => {
-      void transcodeAndUploadFile(wavBlob)
-    }
-
-    const handleDuration = ({ ms }: { ms: number }): void => {
-      setRecordingTime(formatTime(ms))
-    }
-
-    const handleTimeUpdate = ({
-      currentTime,
-    }: {
-      currentTime: number
-    }): void => {
-      setProgressTime(formatTime(currentTime))
-    }
-
-    controller.on("permissionDenied", handlePermissionDenied)
-    controller.on("error", handleError)
-    controller.on("ready", handleReady)
-    controller.on("duration", handleDuration)
-    controller.on("timeupdate", handleTimeUpdate)
 
     return () => {
-      controller.off("permissionDenied", handlePermissionDenied)
-      controller.off("error", handleError)
-      controller.off("ready", handleReady)
-      controller.off("duration", handleDuration)
-      controller.off("timeupdate", handleTimeUpdate)
+      if (playbackTimerRef.current) {
+        cancelAnimationFrame(playbackTimerRef.current)
+        playbackTimerRef.current = null
+      }
     }
-  }, [controller, transcodeAndUploadFile, setRecordingTime])
+  }, [controller])
 
   useEffect(() => {
     if (isNullOrUndefined(widgetFormId)) return
@@ -338,34 +352,29 @@ const AudioInput: React.FC<Props> = ({
   }, [widgetFormId, handleClear, widgetMgr])
 
   useEffect(() => {
-    if (recordingUrl && controller.getState() === "idle") {
-      void controller.load(recordingUrl)
-    }
-  }, [recordingUrl, controller])
-
-  useEffect(() => {
     return () => {
       if (uploadAbortControllerRef.current) {
         uploadAbortControllerRef.current.abort()
         uploadAbortControllerRef.current = null
       }
-      controller.destroy()
+      if (playbackTimerRef.current) {
+        cancelAnimationFrame(playbackTimerRef.current)
+        playbackTimerRef.current = null
+      }
     }
-  }, [controller])
+  }, [])
 
   const onClickPlayPause = useCallback(async () => {
-    const state = controller.getState()
     try {
-      if (state === "playing") {
-        controller.pause()
-      } else if (state === "ready" || state === "paused") {
-        await controller.play()
-        setShouldUpdatePlaybackTime(true)
+      if (controller.playback.isPlaying()) {
+        controller.playback.pause()
+      } else if (controller.state === "idle" && recordingUrl) {
+        await controller.playback.play()
       }
     } catch {
       setIsError(true)
     }
-  }, [controller])
+  }, [controller, recordingUrl])
 
   const startRecording = useCallback(async () => {
     if (recordingUrl) {
@@ -373,16 +382,16 @@ const AudioInput: React.FC<Props> = ({
     }
 
     try {
-      await controller.startRecording()
-      setRecordingTime(STARTING_TIME_STRING)
+      await controller.start()
     } catch {
       // Error handling is done via event listeners
     }
-  }, [controller, recordingUrl, handleClear, setRecordingTime])
+  }, [controller, recordingUrl, handleClear])
 
   const stopRecording = useCallback(async () => {
     try {
-      await controller.stopRecording()
+      await controller.stop()
+      await controller.approve()
     } catch {
       setIsError(true)
     }
@@ -414,10 +423,11 @@ const AudioInput: React.FC<Props> = ({
     })
   }, [handleClear])
 
-  const state = controller.getState()
+  const state = controller.state
   const isRecording = state === "recording"
-  const isPlaying = state === "playing"
-  const showPlaceholder = state === "idle" && !hasNoMicPermissions
+  const isPlaying = controller.playback.isPlaying()
+  const showPlaceholder =
+    state === "idle" && !hasNoMicPermissions && !recordingUrl
   const showNoMicPermissionsOrPlaceholderOrError =
     hasNoMicPermissions || showPlaceholder || isError
 
@@ -482,8 +492,8 @@ const AudioInput: React.FC<Props> = ({
           >
             <WaveformSurface
               controller={controller}
-              showTimer={false}
-              height={48}
+              containerRef={containerRef}
+              ariaLabel="Recorded audio waveform"
             />
           </StyledWaveSurferDiv>
         </StyledWaveformInnerDiv>
@@ -492,7 +502,7 @@ const AudioInput: React.FC<Props> = ({
           disabled={disabled}
           data-testid="stAudioInputWaveformTimeCode"
         >
-          {shouldUpdatePlaybackTime ? progressTime : recordingTime}
+          {isPlaying ? progressTime : recordingTime}
         </StyledWaveformTimeCode>
       </StyledWaveformContainerDiv>
     </StyledAudioInputContainerDiv>

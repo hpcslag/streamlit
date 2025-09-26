@@ -14,14 +14,11 @@
  * limitations under the License.
  */
 
-export { encodeToWav } from "./core/encodeToWav"
+export { encodeToWav, encodeToWav16kMono } from "./core/encodeToWav"
 export type {
   WaveformController,
-  WaveformControllerCapabilities,
-  WaveformControllerOptions,
-  WaveformErrorCode,
-  WaveformEventMap,
-  WaveformState,
+  WaveformControllerEvents,
+  RecordingState,
 } from "./core/types"
 export { useWaveformController } from "./core/useWaveformController"
 export { default as WaveformSurface } from "./ui/WaveformSurface"

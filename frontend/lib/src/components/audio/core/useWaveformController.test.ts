@@ -14,140 +14,160 @@
  * limitations under the License.
  */
 
-import { renderHook } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { act, renderHook } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useWaveformController } from "./useWaveformController"
 
-vi.mock("wavesurfer.js", () => ({
-  default: {
-    create: vi.fn(() => ({
-      on: vi.fn(),
-      off: vi.fn(),
-      destroy: vi.fn(),
-      empty: vi.fn(),
-      setOptions: vi.fn(),
-      registerPlugin: vi.fn(() => ({
-        on: vi.fn(),
-        off: vi.fn(),
-        destroy: vi.fn(),
-        startRecording: vi.fn(),
-        stopRecording: vi.fn(),
-        isRecording: vi.fn(() => false),
-      })),
-    })),
-  },
-}))
-
-vi.mock("wavesurfer.js/dist/plugins/record", () => ({
-  default: {
-    create: vi.fn(() => ({
-      on: vi.fn(),
-      off: vi.fn(),
-      destroy: vi.fn(),
-      startRecording: vi.fn(),
-      stopRecording: vi.fn(),
-      isRecording: vi.fn(() => false),
-    })),
-  },
-}))
-
 describe("useWaveformController", () => {
-  it("initializes with idle state", () => {
-    const { result } = renderHook(() => useWaveformController())
+  let mockContainerRef: { current: HTMLDivElement | null }
+  let mockEvents: {
+    onPermissionDenied?: () => void
+    onError?: (error: Error) => void
+    onRecordStart?: () => void
+    onRecordReady?: (blob: Blob) => void
+    onApprove?: (wav: Blob) => void
+    onCancel?: () => void
+    onProgressMs?: (ms: number) => void
+  }
 
-    expect(result.current.getState()).toBe("idle")
-    expect(result.current.getDurationMs()).toBe(0)
-    expect(result.current.getCurrentTimeMs()).toBe(0)
+  beforeEach(() => {
+    mockContainerRef = { current: document.createElement("div") }
+    mockEvents = {
+      onPermissionDenied: vi.fn(),
+      onError: vi.fn(),
+      onRecordStart: vi.fn(),
+      onRecordReady: vi.fn(),
+      onApprove: vi.fn(),
+      onCancel: vi.fn(),
+      onProgressMs: vi.fn(),
+    }
   })
 
-  it("provides correct capabilities for idle state", () => {
-    const { result } = renderHook(() => useWaveformController())
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
 
-    const capabilities = result.current.getCapabilities()
-    expect(capabilities).toEqual({
-      canStartRecording: true,
-      canStopRecording: false,
-      canCancelRecording: false,
-      canPlay: false,
-      canPause: false,
-      canClear: false,
+  it("should initialize with idle state", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
+
+    expect(result.current.state).toBe("idle")
+  })
+
+  it("should have playback methods", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
+
+    expect(result.current.playback).toBeDefined()
+    expect(typeof result.current.playback.isPlaying).toBe("function")
+    expect(typeof result.current.playback.play).toBe("function")
+    expect(typeof result.current.playback.pause).toBe("function")
+    expect(typeof result.current.playback.getCurrentTimeMs).toBe("function")
+    expect(typeof result.current.playback.getDurationMs).toBe("function")
+  })
+
+  it("should have control methods", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
+
+    expect(typeof result.current.start).toBe("function")
+    expect(typeof result.current.stop).toBe("function")
+    expect(typeof result.current.approve).toBe("function")
+    expect(typeof result.current.cancel).toBe("function")
+    expect(typeof result.current.setEventHandlers).toBe("function")
+  })
+
+  it("should update events via setEventHandlers", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
+
+    const newEvents = {
+      onError: vi.fn(),
+    }
+
+    act(() => {
+      result.current.setEventHandlers(newEvents)
     })
-  })
-
-  it("provides correct capabilities for ready state", () => {
-    const { result } = renderHook(() => useWaveformController())
-
-    const controller = result.current
-    vi.spyOn(controller, "getState").mockReturnValue("ready")
-
-    const capabilities = controller.getCapabilities()
-    expect(capabilities.canStartRecording).toBe(true)
-    expect(capabilities.canStopRecording).toBe(false)
-    expect(capabilities.canPlay).toBe(true)
-    expect(capabilities.canClear).toBe(true)
-  })
-
-  it("provides correct capabilities for recording state", () => {
-    const { result } = renderHook(() => useWaveformController())
-
-    const controller = result.current
-    vi.spyOn(controller, "getState").mockReturnValue("recording")
-
-    const capabilities = controller.getCapabilities()
-    expect(capabilities.canStartRecording).toBe(false)
-    expect(capabilities.canStopRecording).toBe(true)
-    expect(capabilities.canCancelRecording).toBe(true)
-    expect(capabilities.canPlay).toBe(false)
-  })
-
-  it("provides correct capabilities for playing state", () => {
-    const { result } = renderHook(() => useWaveformController())
-
-    const controller = result.current
-    vi.spyOn(controller, "getState").mockReturnValue("playing")
-
-    const capabilities = controller.getCapabilities()
-    expect(capabilities.canStartRecording).toBe(false)
-    expect(capabilities.canPause).toBe(true)
-    expect(capabilities.canPlay).toBe(false)
-  })
-
-  it("allows registering and removing event listeners", () => {
-    const { result } = renderHook(() => useWaveformController())
-    const controller = result.current
-
-    const mockCallback = vi.fn()
-    controller.on("state", mockCallback)
-    controller.off("state", mockCallback)
-
-    expect(mockCallback).not.toHaveBeenCalled()
-  })
-
-  it("accepts custom sample rate option", () => {
-    const { result } = renderHook(() =>
-      useWaveformController({ sampleRate: 48000 })
-    )
 
     expect(result.current).toBeDefined()
   })
 
-  it("accepts autoLoadOnReady option", () => {
+  it("should call cancel and update state on cancel()", () => {
     const { result } = renderHook(() =>
-      useWaveformController({ autoLoadOnReady: false })
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
     )
 
-    expect(result.current).toBeDefined()
+    act(() => {
+      result.current.cancel()
+    })
+
+    expect(result.current.state).toBe("idle")
+    expect(mockEvents.onCancel).toHaveBeenCalled()
   })
 
-  it("cleans up on unmount", () => {
-    const { result, unmount } = renderHook(() => useWaveformController())
+  it("should throw error when approving without recording", async () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
 
-    const controller = result.current
-    const destroySpy = vi.spyOn(controller, "destroy")
+    await expect(result.current.approve()).rejects.toThrow(
+      "No recorded audio to approve"
+    )
+  })
 
-    unmount()
+  it("should return false for isPlaying when not playing", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
 
-    expect(destroySpy).toHaveBeenCalled()
+    expect(result.current.playback.isPlaying()).toBe(false)
+  })
+
+  it("should return 0 for getCurrentTimeMs when no playback", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
+
+    expect(result.current.playback.getCurrentTimeMs()).toBe(0)
+  })
+
+  it("should return 0 for getDurationMs when no recording", () => {
+    const { result } = renderHook(() =>
+      useWaveformController({
+        containerRef: mockContainerRef,
+        events: mockEvents,
+      })
+    )
+
+    expect(result.current.playback.getDurationMs()).toBe(0)
   })
 })

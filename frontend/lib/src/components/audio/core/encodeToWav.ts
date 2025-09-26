@@ -15,7 +15,19 @@
  */
 
 /**
- * Encodes an audio blob to WAV format at 16kHz mono using Web Audio API.
+ * Encodes an audio blob to 16kHz mono WAV format using Web Audio API.
+ * This is the exact function required by the controller specification.
+ *
+ * @param input - The input audio blob (any format Web Audio API can decode)
+ * @returns Promise resolving to 16kHz, 16-bit PCM mono WAV Blob
+ * @throws Error if encoding fails
+ */
+export async function encodeToWav16kMono(input: Blob): Promise<Blob> {
+  return encodeToWav(input, 16000)
+}
+
+/**
+ * Encodes an audio blob to WAV format at specified sample rate, mono.
  * This function performs high-quality resampling using OfflineAudioContext.
  *
  * @param blob - The input audio blob (any format Web Audio API can decode)

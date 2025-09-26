@@ -14,74 +14,36 @@
  * limitations under the License.
  */
 
-export type WaveformState =
-  | "idle"
-  | "requesting_mic"
-  | "recording"
-  | "stopping"
-  | "ready"
-  | "playing"
-  | "paused"
-  | "error"
+export type RecordingState = "idle" | "recording"
 
-export type WaveformErrorCode =
-  | "permission_denied"
-  | "unsupported_browser"
-  | "wavesurfer_unavailable"
-  | "recorder_unavailable"
-  | "encoder_failed"
-  | "container_swap_blocked"
-  | "unknown_error"
-
-export type WaveformEventMap = {
-  state: { prev: WaveformState; next: WaveformState }
-  error: { code: WaveformErrorCode; message: string; error?: Error }
-  ready: { wavBlob: Blob }
-  duration: { ms: number }
-  timeupdate: { currentTime: number }
-  permissionDenied: Record<string, never>
-}
-
-export type WaveformControllerCapabilities = {
-  canStartRecording: boolean
-  canStopRecording: boolean
-  canCancelRecording: boolean
-  canPlay: boolean
-  canPause: boolean
-  canClear: boolean
-}
-
-export type WaveformControllerOptions = {
-  sampleRate?: number
-  autoLoadOnReady?: boolean
+export interface WaveformControllerEvents {
+  onPermissionDenied?: () => void
+  onError?: (error: Error) => void
+  onRecordStart?: () => void
+  onRecordReady?: (blob: Blob) => void
+  onApprove?: (wav: Blob) => void
+  onCancel?: () => void
+  onProgressMs?: (ms: number) => void
 }
 
 export interface WaveformController {
-  startRecording(): Promise<void>
-  stopRecording(): Promise<Blob>
-  cancelRecording(): void
+  readonly state: RecordingState
 
-  load(source: Blob | ArrayBuffer | string): Promise<void>
-  play(): Promise<void>
-  pause(): void
+  start(): Promise<void>
 
-  getState(): WaveformState
-  getCapabilities(): WaveformControllerCapabilities
-  getDurationMs(): number
-  getCurrentTimeMs(): number
+  stop(): Promise<void>
 
-  mountVisualizer(el: HTMLElement): void
-  unmountVisualizer(): void
+  approve(): Promise<void>
 
-  on<K extends keyof WaveformEventMap>(
-    event: K,
-    cb: (e: WaveformEventMap[K]) => void
-  ): void
-  off<K extends keyof WaveformEventMap>(
-    event: K,
-    cb: (e: WaveformEventMap[K]) => void
-  ): void
+  cancel(): void
 
-  clear(): void
-  destroy(): void
+  playback: {
+    isPlaying(): boolean
+    play(): Promise<void>
+    pause(): void
+    getCurrentTimeMs(): number
+    getDurationMs(): number
+  }
+
+  setEventHandlers(events: WaveformControllerEvents): void
 }
